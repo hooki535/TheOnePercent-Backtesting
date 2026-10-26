@@ -39,3 +39,12 @@ test('untracked local and online work produce a conflict instead of data loss',a
 test('stopped account adapter cannot upload later work',async()=>{
  const db=database(),a=device(db);await a.sync.start();a.sync.stop();a.state.sessions.push({id:'must-not-upload'});a.save();await a.sync.flush();assert.equal(db.rows.size,0);
 });
+
+test('research preparation and trade reflection travel through the existing account sync',async()=>{
+ const E=require('../assets/backtest-workspace.js'),R=require('../assets/backtest-research.js'),bars=Array.from({length:180},(_,i)=>({t:1700000100+i*3600,o:100,h:102,l:99,c:101}));
+ const s=E.createSession({symbol:'EURUSD',interval:'1H',startBalance:10000,multiplier:1},bars);E.placeOrder(s,{side:'long',quantity:2,stop:98,target:104});E.step(s);E.requestClose(s);E.step(s);
+ s.research=R.clean({hypothesis:'Test the setup',entryPlan:'Wait for a close',riskPlan:'Keep the defined risk',nextAction:'Review another week'});s.reviews={[E.tradeKey(s.trades[0])]:R.cleanReview({notes:'Recorded after closing',emotion:'calm',followed:'yes',lesson:'Wait for the signal'})};
+ const db=database(),a=device(db);await a.sync.start();a.state.sessions.push(E.snapshot(s));a.save();await a.sync.flush();
+ const b=device(db);await b.sync.start();const restored=E.restore(b.state.sessions[0]);assert.deepEqual(restored.research,s.research);assert.deepEqual(restored.reviews,s.reviews);assert.equal(restored.cursor,s.cursor);assert.deepEqual(E.metrics(restored),E.metrics(s));
+ const other=device(db,'user-b');await other.sync.start();assert.equal(other.state.sessions.length,0);a.sync.stop();b.sync.stop();other.sync.stop();
+});
