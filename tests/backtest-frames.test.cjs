@@ -32,3 +32,22 @@ test('minute archives retain their original per-pair values and match their attr
  const dir=path.join(__dirname,'../assets/backtesting/data'),m=JSON.parse(fs.readFileSync(path.join(dir,'forex-minute-manifest.json')));assert.equal(m.datasets.length,7);assert.equal(m.license,'CC-BY-SA-4.0');
  for(const d of m.datasets){const data=fs.readFileSync(path.join(dir,d.file));assert.equal(crypto.createHash('sha256').update(data).digest('hex'),d.sha256);const rows=E.parseCSV(data.toString());assert.equal(rows.length,d.bars);assert.ok(rows.length>6000);assert.equal(rows[0].t%60,0);}
 });
+
+test('earlier display context fixes sparse daily charts without changing saved trades or replay indexes',()=>{
+ const history=Array.from({length:3000},(_,i)=>({t:start+(i-2400)*3600,o:100,h:102,l:99,c:101}));
+ const s=E.createSession({symbol:'EURUSD',interval:'1H',startBalance:10000,multiplier:1},history.slice(2400));
+ E.placeOrder(s,{side:'long',quantity:1,stop:99,target:102});E.step(s);
+ const before=E.snapshot(s),oldDaily=F.project(s,'1D').bars.length;F.setContext(s,history.slice(0,2400));
+ assert.ok(oldDaily<6);assert.ok(F.project(s,'1D').bars.length>=100);
+ assert.deepEqual(E.snapshot(s),before);assert.deepEqual(E.snapshot(E.restore(before)),before);
+ for(const key of ['1H','4H','1D']){const p=F.project(s,key);for(const index of [0,20,80,s.cursor])assert.ok(Math.abs(p.toBase(p.toDisplay(index))-index)<1e-8);assert.ok(p.bars.every(b=>b.t<=s.candles[s.cursor].t));}
+ const changed=structuredClone(s);changed.candles=changed.candles.map((b,i)=>i>s.cursor?{...b,h:1e9,c:1e9}:b);F.setContext(changed,history.slice(0,2400));assert.deepEqual(F.project(changed,'1D').bars,F.project(s,'1D').bars);
+ assert.throws(()=>F.setContext(s,[history[2400]]),/before the saved dataset/);
+ assert.throws(()=>F.setContext(s,[history[1],history[0]]),/ordered/);
+});
+
+test('chart context stays isolated to its portfolio market and never enters a backup',()=>{
+ const s=E.createPortfolio({startBalance:10000,multiplier:1,interval:'1m'},[{symbol:'EURUSD',candles:bars},{symbol:'GBPUSD',candles:bars}]);
+ const old=E.snapshot(s),earlier=bars.slice(0,50).map(b=>({...b,t:b.t-3000}));F.setContext(s,earlier);assert.equal(F.context(s).length,50);
+ E.selectMarket(s,'GBPUSD');assert.equal(F.context(s).length,0);E.selectMarket(s,'EURUSD');assert.equal(F.context(s).length,50);assert.deepEqual(E.snapshot(s),old);
+});

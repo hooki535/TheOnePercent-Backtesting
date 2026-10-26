@@ -10,7 +10,7 @@
   let renderKind='candles',candles=priceSeries(renderKind);
   const ma=chart.addSeries(L.LineSeries,{color:'#a390ff',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
   const extra=new Map();let markers=L.createSeriesMarkers?L.createSeriesMarkers(candles,[]):null;
-  let previous=-1,sessionId=null,visible=0,lines=[],current=null,tool='cursor',first=null,selected=null,drag=null,frame=null,hover=null,magnet=false,hidden=false,suppressClick=false,lastMA=false;
+  let projectionLength=0,previous=-1,sessionId=null,visible=0,lines=[],current=null,tool='cursor',first=null,selected=null,drag=null,frame=null,hover=null,magnet=false,hidden=false,suppressClick=false,lastMA=false;
   const Suite=window.BacktestDrawingSuite;
   let pending=[],freehand=null,lastHit=null,lastTap=null;
   let projection=null,keepMode=false;
@@ -166,7 +166,8 @@
     const level=(value,title,c)=>lines.push(candles.createPriceLine({price:value,color:c,lineWidth:1,lineStyle:L.LineStyle.Dashed,axisLabelVisible:true,title}));
     for(const value of (hidden?[]:s.drawings))level(value,'Level',color('accent'));
     const p=s.position||s.pending;if(p){if(p.entry)level(p.entry,s.position?'Entry':'Queued',color('muted'));level(p.stop,'SL',color('down'));level(p.target,'TP',color('up'));}
-    if(changed||visible!==barsVisible)ts.setVisibleLogicalRange({from:Math.max(-.5,bars.length-barsVisible),to:bars.length+7});
+    if(changed||visible!==barsVisible||projectionLength!==bars.length)ts.setVisibleLogicalRange({from:bars.length-barsVisible,to:bars.length+7});
+    projectionLength=bars.length;
     if(markers){const rows=s.trades.filter(t=>!t.symbol||t.symbol===s.symbol).flatMap(t=>[{time:projection.bucket(t.entryTime),position:t.side==='long'?'belowBar':'aboveBar',color:'#4385ff',shape:t.side==='long'?'arrowUp':'arrowDown',text:t.side==='long'?'Buy':'Sell'},{time:projection.bucket(t.exitTime),position:'aboveBar',color:t.pnl>=0?'#45d5a2':'#ff7484',shape:'circle',text:t.pnl>=0?'Win':'Loss'}]);if(s.position)rows.push({time:projection.bucket(s.position.entryTime),position:'belowBar',color:'#4385ff',shape:'arrowUp',text:s.position.side==='long'?'Buy':'Sell'});markers.setMarkers(rows.sort((a,b)=>a.time-b.time));}
     previous=s.cursor;sessionId=identity;visible=barsVisible;onCrosshair(bars.at(-1));repaint();
    },

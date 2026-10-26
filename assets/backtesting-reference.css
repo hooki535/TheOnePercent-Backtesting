@@ -92,3 +92,9 @@
 #bt-new-form>.bt-form-grid>.bt-pair-picker,#bt-new-form>.bt-form-grid>.bt-session-more{grid-column:1/-1}
 #bt-new-form .bt-session-actions{position:static}
 #bt-new-form input[type=datetime-local]{font-size:10px!important;padding-left:12px!important;padding-right:8px!important;letter-spacing:-.15px}
+
+/* Keep context, status and actions readable as separate items. */
+.bt-history-strip{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 14px}
+#bt-history-caption{flex:1;min-width:200px;line-height:1.6}
+#bt-load-earlier{white-space:nowrap;color:var(--bt-accent)}
+#bt-load-earlier:disabled{color:var(--bt-muted);cursor:default}

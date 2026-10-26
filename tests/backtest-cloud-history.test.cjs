@@ -34,3 +34,19 @@ test('database RPC errors and missing private payloads do not substitute candles
 test('immutable chunks are cached and timezone-qualified dates work',async()=>{
  const f=fixture('2025-01'),c=client([f]),h=new History(c);await h.catalog();await h.load('histdata:EURUSD:H1',{limit:120});await h.load('histdata:EURUSD:H1',{limit:120,end:'2025-01-10T00:00:00+00:00'});assert.equal(c.downloads.length,1);assert.equal(c.calls.filter(x=>x.name==='history_catalog').length,1);
 });
+
+test('larger pre-roll keeps the selected start and enough forward replay data',async()=>{
+ const fixtures=[fixture('2025-01'),fixture('2025-02',672),fixture('2025-03'),fixture('2025-04',720)],h=new History(client(fixtures));await h.catalog();
+ const result=await h.load('histdata:EURUSD:H1',{start:'2025-04-10T00:00',context:2400});
+ const index=result.candles.findIndex(b=>b.t===Date.parse('2025-04-10T00:00Z')/1000);
+ assert.ok(index>2000);assert.ok(result.candles.length-index>30);
+ await assert.rejects(h.load('histdata:EURUSD:H1',{context:5000}),/replay candle/);
+});
+
+test('earlier chart history excludes the saved dataset and every future candle',async()=>{
+ const h=new History(client([fixture('2025-01'),fixture('2025-02',672)]));await h.catalog();
+ const first=Date.parse('2025-02-10T00:00Z')/1000,rows=await h.before('histdata:EURUSD:H1',first,800);
+ assert.equal(rows.length,800);assert.equal(rows.at(-1).t,first-3600);assert.ok(rows.every(b=>b.t<first));
+ assert.deepEqual(await h.before('histdata:EURUSD:H1',Date.parse('2025-01-01T00:00Z')/1000),[]);
+ await assert.rejects(h.before('histdata:EURUSD:H1',first,10001),/Invalid/);
+});

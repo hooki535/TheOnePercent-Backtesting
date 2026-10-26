@@ -41,8 +41,19 @@
    const bytes=Uint8Array.from(atob(base64),c=>c.charCodeAt(0));const bars=await unpack(new Blob([bytes]),meta);
    if(this.cache.size>=16)this.cache.delete(this.cache.keys().next().value);this.cache.set(meta.object_path,bars);return bars;
   }
-  async load(id,{start='',end='',limit=5000}={}){
+  async before(id,time,limit=2400){
+   if(!Number.isInteger(time)||!Number.isInteger(limit)||limit<1||limit>10000)throw Error('Invalid earlier-history request.');
+   const archive=this.archives.find(x=>x.id===id);if(!archive)throw Error('Choose an uploaded cloud archive.');
+   const {data,error}=await this.client.rpc('history_months',{source_provider:archive.provider,source_symbol:archive.symbol,source_timeframe:archive.timeframe});
+   if(error||!Array.isArray(data))throw Error('Earlier history is unavailable. Retry when connected.');
+   const parts=data.map(validateMeta).filter(r=>{if([r.provider,r.symbol,r.timeframe].join(':')!==id)throw Error('Unexpected cloud history instrument.');return Date.parse(r.first_utc)/1000<time;}).sort((a,b)=>b.month.localeCompare(a.month));
+   let rows=[];
+   for(const meta of parts){const chunk=(await this.chunk(meta)).filter(b=>b.t<time);if(rows.length&&chunk.length&&chunk.at(-1).t>=rows[0].t)throw Error('Cloud archives contain overlapping candles.');rows=[...chunk,...rows];if(rows.length>=limit)break;}
+   return rows.length?E.validateBars(rows.slice(-limit),1):[];
+  }
+  async load(id,{start='',end='',limit=5000,context=Math.min(100,limit-1)}={}){
    if(!Number.isInteger(limit)||limit<60||limit>10000)throw Error('Choose 60–10,000 candles.');
+   if(!Number.isInteger(context)||context<0||context>=limit)throw Error('Leave at least one replay candle after the history context.');
    const begin=utc(start),finish=utc(end);if(begin!==null&&finish!==null&&begin>=finish)throw Error('Start date must precede end date.');
    const archive=this.archives.find(x=>x.id===id);if(!archive)throw Error('Choose an uploaded cloud archive.');
    const {data,error}=await this.client.rpc('history_months',{source_provider:archive.provider,source_symbol:archive.symbol,source_timeframe:archive.timeframe});
@@ -50,12 +61,12 @@
    const parts=data.map(validateMeta).filter(r=>{if([r.provider,r.symbol,r.timeframe].join(':')!==id)throw Error('Unexpected cloud history instrument.');return finish===null||Date.parse(r.first_utc)/1000<=finish;}).sort((a,b)=>a.month.localeCompare(b.month));
    if(!parts.length)throw Error('Choose an uploaded cloud archive.');
    if(begin!==null&&(begin<Date.parse(parts[0].first_utc)/1000||begin>Date.parse(parts.at(-1).last_utc)/1000))throw Error('Choose a start date within the displayed cloud coverage.');
-   let from=0;if(begin!==null){from=parts.findIndex(r=>Date.parse(r.last_utc)/1000>=begin);let count=0;while(from>0&&count<100)count+=parts[--from].candle_count;}else{let count=0;from=parts.length;while(from>0&&count<limit)count+=parts[--from].candle_count;}
+   let from=0;if(begin!==null){from=parts.findIndex(r=>Date.parse(r.last_utc)/1000>=begin);let count=0;while(from>0&&count<context)count+=parts[--from].candle_count;}else{let count=0;from=parts.length;while(from>0&&count<limit)count+=parts[--from].candle_count;}
    let before=[],after=[],previous=-1;const used=[];
    for(const meta of parts.slice(from)){
     if(finish!==null&&Date.parse(meta.first_utc)/1000>finish)break;
     const bars=await this.chunk(meta);used.push({path:meta.object_path,sha256:meta.sha256});
-    for(const bar of bars){if(bar.t<=previous)throw Error('Cloud archives contain overlapping candles.');previous=bar.t;if(finish!==null&&bar.t>finish)continue;if(begin!==null&&bar.t<begin){before.push(bar);if(before.length>100)before.shift();}else if(begin===null||after.length<limit)after.push(bar);}
+    for(const bar of bars){if(bar.t<=previous)throw Error('Cloud archives contain overlapping candles.');previous=bar.t;if(finish!==null&&bar.t>finish)continue;if(begin!==null&&bar.t<begin){before.push(bar);if(before.length>context)before.shift();}else if(begin===null||after.length<limit)after.push(bar);}
     if(begin!==null&&after.length>=limit-before.length)break;
    }
    const candles=begin===null?after.slice(-limit):[...before,...after].slice(0,limit);
